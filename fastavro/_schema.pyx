@@ -50,17 +50,33 @@ cpdef schema_name(schema, parent_ns):
     return namespace, '{}.{}'.format(namespace, name)
 
 
-def parse_schema(schema, _write_hint=True):
-    if isinstance(schema, dict) and "__fastavro_parsed" in schema:
+def parse_schema(schema, _write_hint=True, _force=False):
+    if _force:
+        parsed_schema = _parse_schema(schema, "")
+        if isinstance(schema, dict):
+            if _write_hint:
+                parsed_schema["__fastavro_parsed"] = True
+            else:
+                parsed_schema.pop("__fastavro_parsed", None)
+        return parsed_schema
+    elif isinstance(schema, dict) and "__fastavro_parsed" in schema:
+        if _write_hint is False:
+            schema.pop("__fastavro_parsed", None)
         return schema
     else:
-        return _parse_schema(schema, "", _write_hint)
+        parsed_schema = _parse_schema(schema, "")
+        if isinstance(schema, dict):
+            if _write_hint:
+                parsed_schema["__fastavro_parsed"] = True
+            else:
+                parsed_schema.pop("__fastavro_parsed", None)
+        return parsed_schema
 
 
-cdef _parse_schema(schema, namespace, _write_hint):
+cdef _parse_schema(schema, namespace):
     # union schemas
     if isinstance(schema, list):
-        return [_parse_schema(s, namespace, _write_hint) for s in schema]
+        return [_parse_schema(s, namespace) for s in schema]
 
     # string schemas; this could be either a named schema or a primitive type
     elif not isinstance(schema, dict):
@@ -106,14 +122,12 @@ cdef _parse_schema(schema, namespace, _write_hint):
             parsed_schema["items"] = _parse_schema(
                 schema["items"],
                 namespace,
-                _write_hint
             )
 
         elif schema_type == "map":
             parsed_schema["values"] = _parse_schema(
                 schema["values"],
                 namespace,
-                _write_hint
             )
 
         elif schema_type == "enum":
@@ -138,15 +152,11 @@ cdef _parse_schema(schema, namespace, _write_hint):
             fields = []
             for field in schema.get('fields', []):
                 fields.append(
-                    parse_field(field, namespace, _write_hint)
+                    parse_field(field, namespace)
                 )
 
             parsed_schema["name"] = fullname
             parsed_schema["fields"] = fields
-
-            # Hint that we have parsed the record
-            if _write_hint:
-                parsed_schema["__fastavro_parsed"] = True
 
         elif schema_type in PRIMITIVES:
             parsed_schema["type"] = schema_type
@@ -157,7 +167,7 @@ cdef _parse_schema(schema, namespace, _write_hint):
         return parsed_schema
 
 
-cdef parse_field(field, namespace, _write_hint):
+cdef parse_field(field, namespace):
     parsed_field = {
         key: value
         for key, value in iteritems(field)
@@ -175,7 +185,7 @@ cdef parse_field(field, namespace, _write_hint):
         raise SchemaParseException(msg)
 
     parsed_field["name"] = field["name"]
-    parsed_field["type"] = _parse_schema(field["type"], namespace, _write_hint)
+    parsed_field["type"] = _parse_schema(field["type"], namespace)
 
     return parsed_field
 

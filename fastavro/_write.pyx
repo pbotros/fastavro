@@ -634,7 +634,7 @@ cdef class Writer(object):
         cdef bytearray tmp = bytearray()
 
         self.fo = fo
-        self.schema = parse_schema(schema)
+        self.schema = parse_schema(schema, _write_hint=False)
         self.validate_fn = validate if validator is True else validator
         self.io = MemoryIO()
         self.block_count = 0
@@ -646,7 +646,10 @@ cdef class Writer(object):
             avro_reader = reader(self.fo)
             header = avro_reader._header
 
-            file_writer_schema = parse_schema(avro_reader.writer_schema)
+            file_writer_schema = parse_schema(
+                avro_reader.writer_schema, _write_hint=False
+            )
+
             if self.schema != file_writer_schema:
                 msg = "Provided schema {} does not match file writer_schema {}"
                 raise ValueError(msg.format(self.schema, file_writer_schema))
