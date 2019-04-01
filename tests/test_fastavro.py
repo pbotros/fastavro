@@ -1,3 +1,8 @@
+import os
+import time
+
+import numpy as np
+
 import fastavro
 from fastavro.read import _read as _reader
 from fastavro.write import _write as _writer, Writer
@@ -67,6 +72,46 @@ def _test_files():
         if (not has_snappy) and ('snappy' in filename):
             continue
         yield filename
+
+
+def test_foo_file():
+    # filename = os.path.join(data_dir, 'request.avro')
+    filename = '/tmp/cache_impedance_s3/impedancedusttest|pbs_characterize_fresh_circuit_1214_2.avro'
+    with open(filename, 'rb') as fo:
+        reader = fastavro.reader(fo)
+        assert hasattr(reader, 'writer_schema'), 'no schema on file'
+
+        if basename(filename) in NO_DATA:
+            return
+
+        records = list(reader)
+        assert len(records) > 0, 'no records found'
+
+    record_count = len(records)
+    new_file = MemoryIO()
+    fastavro.writer(new_file, reader.writer_schema, records, reader.codec)
+    new_file_bytes = new_file.getvalue()
+
+    new_file = NoSeekMemoryIO(new_file_bytes)
+    new_reader = fastavro.reader(new_file)
+
+    # print(list(new_reader))
+
+    dtype = [('value', 'f8'), ('measured_at_ns', 'i8'), ('channel_index', 'i1')]
+
+    start = time.time()
+    arr = new_reader.to_array(record_count, dtype)
+    print("Took time %.4f" % (time.time() - start))
+
+    assert arr[0]['value'] == -0.0016133879544215
+
+    new_file = NoSeekMemoryIO(new_file_bytes)
+    new_reader = fastavro.reader(new_file)
+
+    start = time.time()
+    new_record_count = new_reader.record_count()
+    print("Took time %.4f" % (time.time() - start))
+    assert new_record_count == 371372
 
 
 @pytest.mark.parametrize('filename', _test_files())

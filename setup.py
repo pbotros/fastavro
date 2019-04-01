@@ -3,6 +3,8 @@ import os
 import re
 import sys
 
+import numpy
+
 try:
     from setuptools import setup
 except ImportError:
@@ -23,7 +25,7 @@ ext = '.pyx' if USE_CYTHON else '.c'
 ext_modules = []
 if not hasattr(sys, 'pypy_version_info'):
     ext_modules += [
-        Extension('fastavro._read', ["fastavro/_read" + ext]),
+        Extension('fastavro._read', ["fastavro/_read" + ext], include_dirs=[numpy.get_include()]),
         Extension('fastavro._schema', ["fastavro/_schema" + ext]),
         Extension('fastavro._six', ["fastavro/_six" + ext]),
         Extension('fastavro._write', ["fastavro/_write" + ext]),

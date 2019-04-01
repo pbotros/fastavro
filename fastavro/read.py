@@ -1,6 +1,6 @@
 try:
     from . import _read
-except ImportError:
+except ImportError as e:
     from . import _read_py as _read
 
 from . import _read_common

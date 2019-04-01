@@ -6,27 +6,26 @@
 # http://svn.apache.org/viewvc/avro/trunk/lang/py/src/avro/ which is under
 # Apache 2.0 license (http://www.apache.org/licenses/LICENSE-2.0)
 
-from fastavro.six import MemoryIO
-from struct import unpack, error as StructError
-from zlib import decompress
 import datetime
-from decimal import localcontext, Decimal
-from uuid import UUID
-
 import json
+from decimal import localcontext, Decimal
+from struct import unpack, error as StructError
+from uuid import UUID
+from zlib import decompress
 
-from .six import (
-    xrange, btou, utob, iteritems, is_str, str2ints, fstint, long
-)
-from .schema import extract_record_type, extract_logical_type, parse_schema
-from ._schema_common import SCHEMA_DEFS
+from fastavro.six import MemoryIO
 from ._read_common import (
     SchemaResolutionError, MAGIC, SYNC_SIZE, HEADER_SCHEMA
 )
+from ._schema_common import SCHEMA_DEFS
 from ._timezone import utc
 from .const import (
     MCS_PER_HOUR, MCS_PER_MINUTE, MCS_PER_SECOND, MLS_PER_HOUR, MLS_PER_MINUTE,
     MLS_PER_SECOND, DAYS_SHIFT
+)
+from .schema import extract_record_type, extract_logical_type, parse_schema
+from .six import (
+    xrange, btou, utob, iteritems, is_str, str2ints, fstint, long
 )
 
 MASK = 0xFF
@@ -556,6 +555,31 @@ except ImportError:
     pass
 
 
+def to_array(fo, array, keys, header, codec, writer_schema, reader_schema):
+    """Return iterator over avro records."""
+    sync_marker = header['sync']
+
+    read_block = BLOCK_READERS.get(codec)
+    if not read_block:
+        raise ValueError('Unrecognized codec: %r' % codec)
+
+    array_index = 0
+    while True:
+        try:
+            block_count = read_long(fo)
+        except StopIteration:
+            return
+
+        block_fo = read_block(fo)
+
+        for i in xrange(block_count):
+            data = read_data(block_fo, writer_schema, reader_schema)
+            for key in keys:
+                array[array_index][key] = data[key]
+            array_index += 1
+
+        skip_sync(fo, sync_marker)
+
 def _iter_avro_records(fo, header, codec, writer_schema, reader_schema):
     """Return iterator over avro records."""
     sync_marker = header['sync']
@@ -743,6 +767,15 @@ class reader(file_reader):
                                          self.codec,
                                          self.writer_schema,
                                          self.reader_schema)
+
+    def to_array(self, array, keys):
+        return to_array(self.fo,
+            array,
+            keys,
+            self._header,
+            self.codec,
+            self.writer_schema,
+            self.reader_schema)
 
 
 class block_reader(file_reader):

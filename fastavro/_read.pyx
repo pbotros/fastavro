@@ -3,25 +3,27 @@
 
 """Python code for reading AVRO files"""
 
+import datetime
+import json
 # This code is a modified version of the code at
 # http://svn.apache.org/viewvc/avro/trunk/lang/py/src/avro/ which is under
 # Apache 2.0 license (http://www.apache.org/licenses/LICENSE-2.0)
-
-from zlib import decompress
-import datetime
+import re
 from decimal import localcontext, Decimal
-from fastavro.six import MemoryIO
 from uuid import UUID
+from zlib import decompress
 
-import json
+cimport numpy as np
+import numpy as np
+from fastavro.six import MemoryIO
 
-from ._six import (
-    btou, utob, iteritems, is_str, str2ints, fstint, long
+from ._read_common import (
+    SchemaResolutionError, MAGIC, SYNC_SIZE, HEADER_SCHEMA
 )
 from ._schema import extract_record_type, extract_logical_type, parse_schema
 from ._schema_common import SCHEMA_DEFS
-from ._read_common import (
-    SchemaResolutionError, MAGIC, SYNC_SIZE, HEADER_SCHEMA
+from ._six import (
+    btou, utob, iteritems, is_str, str2ints, fstint, long
 )
 from ._timezone import utc
 from .const import (
@@ -625,6 +627,65 @@ except ImportError:
     pass
 
 
+def to_array(fo, record_count, dtype, header, codec, writer_schema, reader_schema):
+    cdef uint32 i
+    cdef uint32 block_count = 0
+    cdef uint32 array_index = 0
+
+    arr = np.empty((record_count,), dtype=dtype)
+
+    keys = [r[0] for r in dtype]
+
+    sync_marker = header['sync']
+
+    read_block = BLOCK_READERS.get(codec)
+    if not read_block:
+        raise ValueError('Unrecognized codec: %r' % codec)
+
+    arr_view_index = 0
+    while True:
+        try:
+            block_count = read_long(fo)
+        except StopIteration:
+            return arr
+
+        block_fo = read_block(fo)
+
+        for i in range(block_count):
+            data = _read_data(block_fo, writer_schema, reader_schema)
+            for j, key in enumerate(keys):
+                arr[array_index][key] = data[key]
+            array_index += 1
+
+        skip_sync(fo, sync_marker)
+
+
+def record_count(fo, header, codec, writer_schema):
+    cdef uint32 i
+    cdef uint32 block_count = 0
+    cdef uint32 record_count = 0
+
+    sync_marker = header['sync']
+
+    read_block = BLOCK_READERS.get(codec)
+    if not read_block:
+        raise ValueError('Unrecognized codec: %r' % codec)
+
+    while True:
+        try:
+            block_count = read_long(fo)
+        except StopIteration:
+            return record_count
+
+        block_fo = read_block(fo)
+
+        for i in range(block_count):
+            _read_data(block_fo, writer_schema, reader_schema=None)
+            record_count += 1
+
+        skip_sync(fo, sync_marker)
+
+
 def _iter_avro_records(fo, header, codec, writer_schema, reader_schema):
     cdef int32 i
 
@@ -749,6 +810,21 @@ class reader(file_reader):
                                          self.codec,
                                          self.writer_schema,
                                          self.reader_schema)
+
+    def to_array(self, record_count, dtype):
+        return to_array(self.fo,
+            record_count,
+            dtype,
+            self._header,
+            self.codec,
+            self.writer_schema,
+            self.reader_schema)
+
+    def record_count(self):
+        return record_count(self.fo,
+            self._header,
+            self.codec,
+            self.writer_schema)
 
 
 class block_reader(file_reader):
